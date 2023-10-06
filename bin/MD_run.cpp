@@ -1,7 +1,8 @@
 #include <fstream>
 #include <iostream>
 #include "../include/algorithm/algorithm.h"
-#include <chrono>
+
+
 template <typename T>
 void get_vector(std::vector<T>& v, std::ifstream & file, int n)
 {
@@ -13,6 +14,27 @@ void get_vector(std::vector<T>& v, std::ifstream & file, int n)
 }
 
 
+void output_xyz(atom*& atom_0, std::fstream& file, int& step)
+{
+    file << atom_0->total_num << "\n"; // out put the number
+    file << "step" << "\t" << step << "\n";     //out put the steps
+    for (int i = 0; i < atom_0->total_num; ++i)
+    {
+        double x = atom_0->coordinate[i].x;
+        double y = atom_0->coordinate[i].y;
+        double z = atom_0->coordinate[i].z;
+        if (!atom_0->if_othogonal)
+        {
+            double old_r[3] = {x, y, z};
+            double new_r[3];
+            compute_1dv_times_3dm(old_r, atom_0->basic_vectors, new_r);
+            x = new_r[0];
+            y = new_r[1];
+            z = new_r[2];
+        }
+        file << atom_0->type[i] << "\t" << x << "\t" << y << "\t" << z << "\n"; // out put the coordinates
+    }
+}
 
 cell* handle_cell(std::ifstream& file)
 {
@@ -38,6 +60,22 @@ atom* handle_atom(std::ifstream& file, cell* cell_0)
     get_vector(z, file, total);
     get_vector(mass, file, total);
     atom* atom_0 = new atom(numcells, total, mass, x, y, z, *cell_0);
+    return atom_0;
+}
+
+atom* handle_atom(std::ifstream& file, cell* cell_0, atom*& atom_1)//   used for test
+{
+    int total;
+    file >> total;
+    std::vector<int> numcells(total);
+    std::vector<double> x(total), y(total), z(total), mass(total);
+    get_vector(numcells, file, 3);
+    get_vector(x, file, total);
+    get_vector(y, file, total);
+    get_vector(z, file, total);
+    get_vector(mass, file, total);
+    atom* atom_0 = new atom(numcells, total, mass, x, y, z, *cell_0);
+    atom_1 = new atom(numcells, total, mass, x, y, z, *cell_0);
     return atom_0;
 }
 
@@ -102,6 +140,7 @@ void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
 }
 void handle_EAM_potential()
 {
+
     std::ifstream file("EAM.txt");
     if(!file)
     {
@@ -130,8 +169,10 @@ void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
+                static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
                 outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
                 << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
 
             if (i % step_to_print == 0)
@@ -149,8 +190,85 @@ void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
+                static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
                 outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
                 << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                output_xyz(atom_0, xyzfile, i);
+            }   // out put the file 
+
+            if (i % step_to_print == 0)
+            {
+                std::cout << "still running" << std::endl;
+            }
+    }
+    }   
+}
+
+
+void handle_EAM_alloy_potential(atom& atom_0, std::ifstream& file_0)
+{
+    bool random = false;
+    double percentage;
+    int type;
+    std::string command;
+    file_0 >> command;
+    if (command == "random")
+    {
+        random = true;
+        file_0 >> type >> percentage;
+    }
+
+    std::ifstream file("EAM_alloy.txt");
+    if(!file)
+    {
+        std::cerr << "Error: unable to open file" << std::endl;
+    }
+
+    potential_energy::get_the_EAM_alloy_data(file, atom_0, random, type, percentage);
+    
+}
+
+void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
+{
+    double dt_inner = dt / coefficient::unit_t_ps;
+    atom_0 -> initialise_boxes_xyz_maxnums(*cell_0);
+    potential_energy::EAM_alloy_cubic_spline_interpolation();//    used for get parameter
+    int step_to_record = (0.001 * step > 1) ? 0.001 * step : 1;
+    int step_to_print = (0.1 * step > 1) ? 0.1 * step : 1;
+    if (atom_0 -> boxes_x < 4 || atom_0 -> boxes_y < 4 || atom_0 -> boxes_z < 4)//atom_0 -> boxes_x < 4 || atom_0 -> boxes_y < 4 || atom_0 -> boxes_z < 4
+    {
+        for (int i = 0; i < step; ++i)
+        {
+            algorithm::velvet_EAM_alloy(dt_inner, *atom_0);
+
+            if (i % step_to_record == 0)//i % step_to_record == 0
+            {
+                static std::fstream outfile("../output/outfile.txt", std::ios::out);
+                static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
+                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
+                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                output_xyz(atom_0, xyzfile, i);
+            }   // out put the file 
+
+            if (i % step_to_print == 0)
+            {
+                std::cout << "still running" << std::endl;
+            }
+        }
+    }
+
+    else
+    {
+        for (int i = 0; i < step; ++i)
+        {
+            algorithm::velvet_EAM_alloy_nl(dt_inner, *atom_0);
+            if (i % step_to_record == 0)
+            {
+                static std::fstream outfile("../output/outfile.txt", std::ios::out);
+                static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
+                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
+                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
 
             if (i % step_to_print == 0)
@@ -163,6 +281,36 @@ void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
 
 
 
+void test_for_EAM_alloy(atom*& atom_0, atom*& atom_1, double dt, cell*& cell_0)
+{
+    for (int i = 0; i < atom_0->total_num; ++i)
+    {
+        atom_1->velocity[i].x = atom_0->velocity[i].x;
+        atom_1->velocity[i].y = atom_0->velocity[i].y;
+        atom_1->velocity[i].z = atom_0->velocity[i].z;
+        atom_1->mass[i] = atom_0->mass[i];
+        atom_1->mass_inv[i] = atom_0->mass_inv[i];
+        atom_1->type[i] = atom_0->type[i];
+    }
+    double dt_inner = dt / coefficient::unit_t_ps;
+    atom_0 -> initialise_boxes_xyz_maxnums(*cell_0);
+    potential_energy::EAM_alloy_cubic_spline_interpolation();//    used for get parameter
+
+    for (int n = 0; n < 1; ++n)
+    {
+        algorithm::velvet_EAM_alloy_nl(dt_inner, *atom_0);
+        algorithm::velvet_EAM_alloy(dt_inner, *atom_1);
+        std::cout << atom_0->potential_energy() << "\t" << atom_1->potential_energy() << "\n";
+    }
+
+    std::fstream file("test.txt", std::ios::out);
+
+    for (int i = 0; i < atom_0->total_num; ++i)
+    {
+        file << atom_0->type[i] << "\t" << atom_1->type[i] << "\n";
+    }
+
+}
 
 int main()
 {
@@ -180,7 +328,7 @@ int main()
 
     cell* cell_0;
 
-    atom* atom_0;
+    atom* atom_0, *atom_1;
 
     double T, dt, step;
 
@@ -190,7 +338,7 @@ int main()
         if (line == "cell")
             cell_0 = handle_cell(file);      // read the cell
         if (line == "atom")
-            atom_0 = handle_atom(file, cell_0);     // read the atom
+            atom_0 = handle_atom(file, cell_0, atom_1);     // read the atom
         if (line == "parameter")
         {
             handle_parameter(file, T, dt, step);    // read the parameter
@@ -214,6 +362,14 @@ int main()
             handle_EAM_potential();
             run_by_EAM_potential(atom_0, cell_0, step, dt);
         }
+
+        if(line == "EAM_alloy potential")
+        {
+            handle_EAM_alloy_potential(*atom_0, file);
+            atom_0->initialise_velocity(T);
+            run_by_EAM_alloy_potential(atom_0, cell_0, step, dt);
+        }
+
     }
 
     auto end_time = std::chrono::high_resolution_clock::now();
@@ -223,3 +379,7 @@ int main()
     
     return 0;
 }
+
+
+
+

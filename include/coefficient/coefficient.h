@@ -20,6 +20,7 @@ static double cutoff_box_z;
 static double cutoff_box_inv_x;
 static double cutoff_box_inv_y;
 static double cutoff_box_inv_z;
+static int max_nums_in_cutoff;  //used for determine the max numbers in the neighbour list
 static int max_num_in_boxes;
 static int max_num_in_nl;
 static double nl_delta;

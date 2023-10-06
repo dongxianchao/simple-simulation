@@ -2,6 +2,9 @@
 #include <cmath>
 #include "../../lib/Eigen/Dense"
 #include "../../lib/Eigen/Sparse"
+#include <unordered_map>
+#include <chrono>
+#include <map>
 
 class cell // This is used for primitive cell
 {

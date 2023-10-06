@@ -4,6 +4,12 @@
 #include <array>
 #include <fstream>
 
+struct three_dim_vector
+{
+    double x = 0, y = 0, z = 0;
+};
+
+
 class atom
 {
     private:
@@ -23,7 +29,7 @@ class atom
     std::vector<std::vector<double>> basic_vectors; // it's used for describe the structure of cell
     std::vector<std::vector<double>> basic_vectors_inv;
     
-    
+
     double box[6];
     int boxes_x, boxes_y, boxes_z; // numbers of the neighbour box in 3 dim
     int* boxes;
@@ -32,7 +38,11 @@ class atom
     int total_num;
     int cell_num;
     double max_nl_dr_square = 0;
-    std::vector<double> x, y, z, mass, vx, vy, vz, pe, fx, fy, fz, mass_inv, x0, y0, z0, rho;
+    three_dim_vector *coordinate, *velocity, *force, *coordinate_init;
+    std::vector<double> mass, pe, mass_inv, rho;
+    std::vector<int> type, count;
+    bool if_othogonal;
+    
 
 
     atom(std::vector<int> numcells, int numbers,
@@ -73,7 +83,7 @@ void compute_1dv_times_3dm(double* arr, std::vector<std::vector<double>> &mtx, d
 
 
 
-void EAM_cubic_spline_interpolation_partial(int& num, double*& values, double& step);
+
 
 
 
@@ -81,20 +91,28 @@ class potential_energy
 {
     private:
 
-    friend void EAM_cubic_spline_interpolation_partial(int& num, double*& values, double& step);
-
-    static double EAM_drho;
-    static double EAM_dr;
-    static int EAM_Nrho;
-    static int EAM_Nr;
-    static double EAM_drho_inv;
-    static double EAM_dr_inv;
-    static double* EAM_F_rho;
-    static double* EAM_Z_r;
-    static double* EAM_rho_r;
-    static double* EAM_cubic_spline_coefficient_r_Zr;
+    static double EAM_drho;//   the interval of rho
+    static double EAM_dr;// the interval of r
+    static int EAM_Nrho;//  the total number of points about rho
+    static int EAM_Nr;// the total number of points about r
+    static double EAM_drho_inv;//   the inverse of the interval of rho
+    static double EAM_dr_inv;// the inverse of the interval of r
+    static double* EAM_F_rho;// the list of F about rho
+    static double* EAM_Z_r;//   the list of  Z of r
+    static double* EAM_rho_r;   // the list of rho of r
+    static double* EAM_cubic_spline_coefficient_r_Zr;// the parameters of cubic spline
     static double* EAM_cubic_spline_coefficient_rho_Frho;   
     static double* EAM_cubic_spline_coefficient_r_rhor;
+    static double** EAM_alloy_F_rho;
+    static double** EAM_alloy_rfhi_r;
+    static double** EAM_alloy_rho_r;
+    static double** EAM_alloy_cubic_spline_coefficient_rfhi_r;
+    static double** EAM_alloy_cubic_spline_coefficient_rho_r;
+    static double** EAM_alloy_cubic_spline_coefficient_F_rho;// the parameters of cubic spline
+    static int total_pair_nums;
+    static int atom_types_nums;
+
+
 
     public:
 
@@ -103,11 +121,19 @@ class potential_energy
     // it's the near boxes method
 
     
-    static void get_the_EAM_data(std::ifstream& file);
-    static void EAM_potential_cubicspline(atom& atom_0);  //the same as the above
+    static void get_the_EAM_data(std::ifstream& file);  //to generate the data
+    static void EAM_potential_cubicspline(atom& atom_0);  //update the force
     static void EAM_cubic_spline_interpolation();   // used for getting the parameter
     static void EAM_nl_linear_interpolation(atom& atom_0);  // used for update force and pe
+
     
+
+
+    static void get_the_EAM_alloy_data(std::ifstream& file, atom& atom_0, bool random=false, int type=0, double percentage=0);// used for generate the data
+    static void EAM_alloy_cubic_spline_interpolation();//   used for getting the parameter
+    static void EAM_alloy_potential_cubicspline(atom& atom_0);// update the force
+    static void EAM_alloy_nl_cubic_spline(atom& atom_0);    //used for update force and pe
+
 
 
     static double get_the_value_of_spline(double*& coefficient_num, double& x, double& step_inv);

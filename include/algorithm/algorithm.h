@@ -11,11 +11,16 @@ static inline void velvet_for_update_place(double & dt, atom& atom_0);
 
 static inline void velvet_for_update_place_with_nl(double & dt, atom& atom_0);
 
+static inline void velvet_for_update_v_first_step(atom& atom_0, double& t);
+
 public:
 
 static void velvet_LJ(double & dt, atom &atom_0);
 static void velvet_LJ_nl(double & dt, atom &atom_0);
 static void velvet_EAM(double & dt, atom &atom_0);
 static void velvet_EAM_nl(double & dt, atom &atom_0);
+
+static void velvet_EAM_alloy(double& dt, atom& atom_0);
+static void velvet_EAM_alloy_nl(double & dt, atom &atom_0);
 
 };

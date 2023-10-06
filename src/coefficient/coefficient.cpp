@@ -20,6 +20,7 @@
     double coefficient::nl_delta_square = 1.0;
     double coefficient::cut_off_nl = 0.0;
     double coefficient::cut_off_nl_square = 0.0;
+    int coefficient::max_nums_in_cutoff = 0.0;
 
 
 void coefficient::get_LJ_coefficient(double epsilon,double sigma,double cutoff_0)
