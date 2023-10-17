@@ -107,10 +107,10 @@ atom::atom(std::vector<int> numcells, int numbers,
         return energy;
     }
 
-    double atom::find_temperature(double& energy)
+    double atom::find_temperature()
     {
-        double t = 2 * energy / (3 * coefficient::k_B * total_num);
-        return t;
+        T = 2 * kineticenergy / (3 * coefficient::k_B * total_num);
+        return T;
     }
 
 
@@ -149,7 +149,7 @@ atom::atom(std::vector<int> numcells, int numbers,
 
 
         double energy = kinetic_energy();// calculate the temperature
-        double t = find_temperature(energy);
+        double t = 2 * energy / (3 * coefficient::k_B * total_num);
 
         double scalar = sqrt(T0 / t);       //find the velocity scalar
 
@@ -253,8 +253,18 @@ double atom::potential_energy()
 //this either
 double atom::total_energy()
 {
-    return kineticenergy + potentialenergy;
+    totalenergy = kineticenergy + potentialenergy;
+    return totalenergy;
 }
+
+void atom::update_energy()
+{
+    kinetic_energy();
+    find_temperature();
+    potential_energy();
+    total_energy();
+}
+
 
 
 inline double vector_dot(std::vector<double> & v1, std::vector<double> & v2)//  as the name said

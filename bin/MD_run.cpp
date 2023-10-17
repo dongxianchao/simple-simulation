@@ -1,7 +1,7 @@
 #include <fstream>
 #include <iostream>
 #include "../include/algorithm/algorithm.h"
-
+#include "../include/ensemble/ensemble.h"
 
 template <typename T>
 void get_vector(std::vector<T>& v, std::ifstream & file, int n)
@@ -79,6 +79,35 @@ atom* handle_atom(std::ifstream& file, cell* cell_0, atom*& atom_1)//   used for
     return atom_0;
 }
 
+void handle_ensemble(std::ifstream& file, std::string& ensemble_type, atom*& atom_0)
+{
+    file >> ensemble_type;
+    if (ensemble_type == "nvt")
+    {
+        file >> ensemble::ensemble_thermostat >> ensemble::target_T;
+        if (ensemble::ensemble_thermostat == "ber")
+        {
+            file >> ensemble::coupling_coefficient;  //read the nvt ensemble 
+            ensemble::coupling_coefficient_inv = 1 / ensemble::coupling_coefficient;
+        }
+        if (ensemble::ensemble_thermostat == "bdp")
+        {
+            file >> ensemble::coupling_coefficient;  //read the nvt ensemble 
+            ensemble::coupling_coefficient_inv = 1 / ensemble::coupling_coefficient;
+            double kinetic_energy;
+            kinetic_energy = 1.5 * coefficient::k_B * atom_0->total_num * ensemble::target_T;
+            double Nf = 3 * atom_0->total_num;
+            ensemble::T0_Nf = ensemble::target_T / Nf;
+            ensemble::e_index_couple = exp(-ensemble::coupling_coefficient_inv);
+            ensemble::e_index_couple_root = exp(-0.5*ensemble::coupling_coefficient_inv);
+            ensemble::gaussian = new std::normal_distribution<double>(0, 1);
+            ensemble::chi_squared = new std::chi_squared_distribution<double>(3 * atom_0->total_num - 1);
+        }
+    }
+
+}
+
+
 void handle_parameter(std::ifstream& file, double& T, double& dt, double& step)
 {
     std::string rubbish;    //used for skip the first word
@@ -93,7 +122,7 @@ void handle_LJ_potential(std::ifstream& file)
     coefficient::get_LJ_coefficient(epsilon, sigma, cutoff);
 }
 
-void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
+void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt, std::string ensemble)
 {
     double dt_inner = dt / coefficient::unit_t_fs;
     atom_0 -> initialise_boxes_xyz_maxnums(*cell_0);
@@ -104,12 +133,13 @@ void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
         for (int i = 0; i < step; ++i)
         {
             algorithm::velvet_LJ(dt_inner, *atom_0);
+            atom_0->update_energy();
 
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
-                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
-                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                outfile << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
             }   // out put the file 
 
             if (i % step_to_print == 0)
@@ -124,11 +154,12 @@ void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
         for (int i = 0; i < step; ++i)
         {
             algorithm::velvet_LJ_nl(dt_inner, *atom_0);
+            atom_0->update_energy();
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
-                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
-                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                outfile << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
             }   // out put the file 
 
             if (i % step_to_print == 0)
@@ -153,7 +184,7 @@ void handle_EAM_potential()
     
 }
 
-void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
+void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt, std::string ensemble)
 {
     double dt_inner = dt / coefficient::unit_t_ps;
     atom_0 -> initialise_boxes_xyz_maxnums(*cell_0);
@@ -165,13 +196,14 @@ void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
         for (int i = 0; i < step; ++i)
         {
             algorithm::velvet_EAM(dt_inner, *atom_0);
+            atom_0->update_energy();
 
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
                 static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
-                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
-                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                outfile << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
                 output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
 
@@ -187,12 +219,13 @@ void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
         for (int i = 0; i < step; ++i)
         {
             algorithm::velvet_EAM_nl(dt_inner, *atom_0);
+            atom_0->update_energy();
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
                 static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
-                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
-                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                outfile << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
                 output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
 
@@ -228,7 +261,7 @@ void handle_EAM_alloy_potential(atom& atom_0, std::ifstream& file_0)
     
 }
 
-void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, double dt)
+void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, double dt, std::string ensemble)
 {
     double dt_inner = dt / coefficient::unit_t_ps;
     atom_0 -> initialise_boxes_xyz_maxnums(*cell_0);
@@ -240,13 +273,15 @@ void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, doubl
         for (int i = 0; i < step; ++i)
         {
             algorithm::velvet_EAM_alloy(dt_inner, *atom_0);
-
+            atom_0->update_energy();
+            if (ensemble == "nvt")
+            ensemble::NVT_ensemble(*atom_0);
             if (i % step_to_record == 0)//i % step_to_record == 0
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
                 static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
-                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
-                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                outfile << atom_0->T << "\t" << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
                 output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
 
@@ -262,12 +297,15 @@ void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, doubl
         for (int i = 0; i < step; ++i)
         {
             algorithm::velvet_EAM_alloy_nl(dt_inner, *atom_0);
+            atom_0->update_energy();
+            if (ensemble == "nvt")
+            ensemble::NVT_ensemble(*atom_0);
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
                 static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
-                outfile << atom_0 -> potential_energy() << "\t" << atom_0 -> kinetic_energy() << "\t" 
-                << atom_0 -> total_energy() << "\t" << (i * dt * 0.001) << "\n";
+                outfile << atom_0->T << "\t" << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
                 output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
 
@@ -278,8 +316,6 @@ void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, doubl
     }
     }   
 }
-
-
 
 void test_for_EAM_alloy(atom*& atom_0, atom*& atom_1, double dt, cell*& cell_0)
 {
@@ -312,6 +348,8 @@ void test_for_EAM_alloy(atom*& atom_0, atom*& atom_1, double dt, cell*& cell_0)
 
 }
 
+
+
 int main()
 {
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -332,6 +370,8 @@ int main()
 
     double T, dt, step;
 
+    std::string ensemble_type, ensemble_thermostat;
+
 
     while (std::getline(file, line))
     {
@@ -339,6 +379,10 @@ int main()
             cell_0 = handle_cell(file);      // read the cell
         if (line == "atom")
             atom_0 = handle_atom(file, cell_0, atom_1);     // read the atom
+        if (line == "ensemble")
+        {
+            handle_ensemble(file, ensemble_type, atom_0);
+        }
         if (line == "parameter")
         {
             handle_parameter(file, T, dt, step);    // read the parameter
@@ -348,26 +392,25 @@ int main()
     }
 
 
-
     while (std::getline(file, line))
     {
         if(line == "LJ potential")
         {
             handle_LJ_potential(file);
-            run_by_LJ_potential(atom_0, cell_0, step, dt);
+            run_by_LJ_potential(atom_0, cell_0, step, dt, ensemble_type);
         }
 
         if(line == "EAM potential")
         {
             handle_EAM_potential();
-            run_by_EAM_potential(atom_0, cell_0, step, dt);
+            run_by_EAM_potential(atom_0, cell_0, step, dt, ensemble_type);
         }
 
         if(line == "EAM_alloy potential")
         {
             handle_EAM_alloy_potential(*atom_0, file);
             atom_0->initialise_velocity(T);
-            run_by_EAM_alloy_potential(atom_0, cell_0, step, dt);
+            run_by_EAM_alloy_potential(atom_0, cell_0, step, dt, ensemble_type);
         }
 
     }

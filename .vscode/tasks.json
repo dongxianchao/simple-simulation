@@ -9,9 +9,10 @@
                 "-g",
                 "-O3",
                 "${file}",
-                "/home/dong/molecular simulation/simple_simulation/src/algorithm/algorithm.cpp",
-                "/home/dong/molecular simulation/simple_simulation/src/coefficient/coefficient.cpp",
-                "/home/dong/molecular simulation/simple_simulation/src/atom/atom_potential.cpp",
+                "../src/algorithm/algorithm.cpp",
+                "../src/coefficient/coefficient.cpp",
+                "../src/atom/atom_potential.cpp",
+                "../src/ensemble/ensemble.cpp",
                 "-fopenmp",
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}"

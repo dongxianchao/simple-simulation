@@ -1,3 +1,4 @@
+#pragma once
 #include "../structure/structure.h"
 #include "../coefficient/coefficient.h"
 #include <cstdlib>
@@ -16,10 +17,7 @@ class atom
 
     void transform_coordinate(cell &cel);
 
-    double find_temperature(double& energy);
 
-    double potentialenergy;
-    double kineticenergy; 
 
 
 
@@ -28,6 +26,12 @@ class atom
 
     std::vector<std::vector<double>> basic_vectors; // it's used for describe the structure of cell
     std::vector<std::vector<double>> basic_vectors_inv;
+
+    double potentialenergy; //this is the potentialenergy
+    double kineticenergy; //    this is the kineticenergy
+    double totalenergy;//   this is the total energy
+    double T;   //this is the temprature
+
     
 
     double box[6];
@@ -52,10 +56,11 @@ class atom
     std::vector<double> z_0, cell& cell_0); /*give the num of cells in 3
     dimensions and the numbers, placement of atoms in the each cell*/
 
-    double kinetic_energy();// this is used for calculate the total energy
+    double kinetic_energy();    // this is used for calculate the total energy
     double total_energy();
     double potential_energy();
-
+    void update_energy();   //this method is used for updating the energy information
+    double find_temperature();
 
     void initialise_boxes();//  used to initialise boxes to empty
     void update_boxes();// used to update the boxes
