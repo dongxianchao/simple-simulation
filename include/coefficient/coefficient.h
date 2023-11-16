@@ -1,6 +1,8 @@
 
 class coefficient
 {
+    //inside the machine, the unit of the energy is 1.6e-19, lemgth is 1e-10, mass is 1.66e-27
+    //and temperature is K.
 public:
 static constexpr double e_energy = 1.6e-19;
 static constexpr double angstrom = 1e-10;
@@ -8,6 +10,7 @@ static constexpr double amu = 1.66e-27;
 static constexpr double k_B = 8.617343e-5;
 static constexpr double unit_t_fs = 1.018051e+01;
 static constexpr double unit_t_ps = 1.018051e-02;
+static constexpr double unit_p_bar = 1602176.565;
 static double e48s12;
 static double e4s12;
 static double e24s6;

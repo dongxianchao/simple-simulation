@@ -27,10 +27,12 @@ class atom
     std::vector<std::vector<double>> basic_vectors; // it's used for describe the structure of cell
     std::vector<std::vector<double>> basic_vectors_inv;
 
+    cell* cell_in;
     double potentialenergy; //this is the potentialenergy
     double kineticenergy; //    this is the kineticenergy
     double totalenergy;//   this is the total energy
     double T;   //this is the temprature
+    double virial_press_tensor_tot[9]{};
 
     
 
@@ -39,12 +41,17 @@ class atom
     int* boxes;
     int* neighbour_list;
 
+
+    //some basic values
+    std::vector<int> primitive_cell_num;
     int total_num;
-    int cell_num;
+    int cell_num;   //the total cell nums, not referring to the neighbour cell
     double max_nl_dr_square = 0;
     three_dim_vector *coordinate, *velocity, *force, *coordinate_init;
     std::vector<double> mass, pe, mass_inv, rho;
     std::vector<int> type, count;
+    std::vector<std::array<double, 9>> virial_tensor;
+    bool virial_switch = false;
     bool if_othogonal;
     
 
@@ -69,6 +76,9 @@ class atom
     void update_neighbour_list();   //  used to update
 
 
+    void rescale_the_position(double* miu);
+    void rescale_the_position(double miuxx, double miuyy, double miuzz);    //used for NPT to rescale the position
+
 
 
     void initialise_velocity(double T0);
@@ -81,6 +91,16 @@ class atom
 
     void insert_in_boxes(int*& place, int index);
     void insert_in_boxes(int (&place)[3], int index);
+
+
+    //the input F should be Fij, and the r should be rij, and the index should be i;
+    void update_the_virial_tensor(double& Fx, double& Fy, double& Fz, double& rx, double& ry, double& rz, int& index);
+
+    //clean_the_virial tensor
+    void clean_the_virial_tensor();
+
+    //used to calculate the virial pressure
+    void calculate_virial_pressure();
 
 };
 

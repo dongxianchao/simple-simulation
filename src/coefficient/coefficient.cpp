@@ -14,8 +14,8 @@
     double coefficient::cutoff_box_inv_y = 0.0;
     double coefficient::cutoff_box_z = 0.0;
     double coefficient::cutoff_box_inv_z = 0.0;
-    int coefficient::max_num_in_boxes = 0.0;
-    int coefficient::max_num_in_nl = 0.0;
+    int coefficient::max_num_in_boxes = 250;
+    int coefficient::max_num_in_nl = 2000;
     double coefficient::nl_delta = 1.0;
     double coefficient::nl_delta_square = 1.0;
     double coefficient::cut_off_nl = 0.0;

@@ -87,24 +87,69 @@ void handle_ensemble(std::ifstream& file, std::string& ensemble_type, atom*& ato
         file >> ensemble::ensemble_thermostat >> ensemble::target_T;
         if (ensemble::ensemble_thermostat == "ber")
         {
-            file >> ensemble::coupling_coefficient;  //read the nvt ensemble 
-            ensemble::coupling_coefficient_inv = 1 / ensemble::coupling_coefficient;
+            file >> ensemble::T_coupling_coefficient;  //read the nvt ensemble 
+            ensemble::T_coupling_coefficient_inv = 1 / ensemble::T_coupling_coefficient;
         }
         if (ensemble::ensemble_thermostat == "bdp")
         {
-            file >> ensemble::coupling_coefficient;  //read the nvt ensemble 
-            ensemble::coupling_coefficient_inv = 1 / ensemble::coupling_coefficient;
+            file >> ensemble::T_coupling_coefficient;  //read the nvt ensemble 
+            ensemble::T_coupling_coefficient_inv = 1 / ensemble::T_coupling_coefficient;
             double kinetic_energy;
             kinetic_energy = 1.5 * coefficient::k_B * atom_0->total_num * ensemble::target_T;
             double Nf = 3 * atom_0->total_num;
             ensemble::T0_Nf = ensemble::target_T / Nf;
-            ensemble::e_index_couple = exp(-ensemble::coupling_coefficient_inv);
-            ensemble::e_index_couple_root = exp(-0.5*ensemble::coupling_coefficient_inv);
+            ensemble::e_index_couple = exp(-ensemble::T_coupling_coefficient_inv);
+            ensemble::e_index_couple_root = exp(-0.5*ensemble::T_coupling_coefficient_inv);
             ensemble::gaussian = new std::normal_distribution<double>(0, 1);
             ensemble::chi_squared = new std::chi_squared_distribution<double>(3 * atom_0->total_num - 1);
         }
     }
+    if (ensemble_type == "npt")
+    {
+        atom_0->virial_switch = true;
+        file >> ensemble::ensemble_thermostat >> ensemble::target_T;
+        if (ensemble::ensemble_thermostat == "ber")
+        {
+            file >> ensemble::T_coupling_coefficient;
+            ensemble::T_coupling_coefficient_inv = 1 / ensemble::T_coupling_coefficient;
+            file >> ensemble::ber_pressure_condition;
+            switch (ensemble::ber_pressure_condition)
+            {
+                case 1:
+                file >> ensemble::pressure_hydro >> ensemble::beta_hydro >> ensemble::P_coupling_coefficient;
+                ensemble::P_coupling_coefficient_inv = 1 / ensemble::P_coupling_coefficient;
+                ensemble::pressure_hydro /= coefficient::unit_p_bar;
+                ensemble::beta_hydro *= coefficient::unit_p_bar;
+                break;
 
+                case 2:
+                file >> ensemble::pressure_xx >> ensemble::pressure_yy >> ensemble::pressure_zz >> ensemble::beta_xx >> ensemble::beta_yy >> ensemble::beta_zz
+                >> ensemble::P_coupling_coefficient;
+                ensemble::P_coupling_coefficient_inv = 1 / ensemble::P_coupling_coefficient;
+                break;
+
+                case 3:
+                file >> ensemble::pressure_xx >> ensemble::pressure_xy >> ensemble::pressure_xz
+                >> ensemble::pressure_yx >> ensemble::pressure_yy >> ensemble::pressure_yz
+                >> ensemble::pressure_zx >> ensemble::pressure_zy >> ensemble::pressure_zz;
+                file >> ensemble::beta_xx >> ensemble::beta_xy >> ensemble::beta_xz
+                >> ensemble::beta_yz >> ensemble::beta_yy >> ensemble::beta_yz
+                >> ensemble::beta_zx >> ensemble::beta_zy >> ensemble::beta_zz;
+                file >> ensemble::P_coupling_coefficient;
+                ensemble::P_coupling_coefficient_inv = 1 / ensemble::P_coupling_coefficient;
+                break;
+            }
+        }
+    }
+
+}
+
+void apply_ensemble(atom* atom_0, std::string& ensemble)
+{
+    if (ensemble == "nvt")
+    ensemble::NVT_ensemble(*atom_0);
+    if (ensemble == "npt")
+    ensemble::NPT_ensemble(*atom_0);
 }
 
 
@@ -124,7 +169,7 @@ void handle_LJ_potential(std::ifstream& file)
 
 void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt, std::string ensemble)
 {
-    double dt_inner = dt / coefficient::unit_t_fs;
+    double dt_inner = dt / coefficient::unit_t_ps;
     atom_0 -> initialise_boxes_xyz_maxnums(*cell_0);
     int step_to_record = (0.01 * step > 1) ? 0.01 * step : 1;
     int step_to_print = (0.1 * step > 1) ? 0.1 * step : 1;
@@ -134,6 +179,7 @@ void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt, s
         {
             algorithm::velvet_LJ(dt_inner, *atom_0);
             atom_0->update_energy();
+            apply_ensemble(atom_0, ensemble);
 
             if (i % step_to_record == 0)
             {
@@ -155,6 +201,7 @@ void run_by_LJ_potential(atom*& atom_0, cell*& cell_0, double step, double dt, s
         {
             algorithm::velvet_LJ_nl(dt_inner, *atom_0);
             atom_0->update_energy();
+            apply_ensemble(atom_0, ensemble);
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
@@ -197,14 +244,14 @@ void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt, 
         {
             algorithm::velvet_EAM(dt_inner, *atom_0);
             atom_0->update_energy();
+            apply_ensemble(atom_0, ensemble);
 
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
                 static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
-                outfile << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                outfile << atom_0->T << "\t" << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
                 << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
-                output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
 
             if (i % step_to_print == 0)
@@ -220,11 +267,12 @@ void run_by_EAM_potential(atom*& atom_0, cell*& cell_0, double step, double dt, 
         {
             algorithm::velvet_EAM_nl(dt_inner, *atom_0);
             atom_0->update_energy();
+            apply_ensemble(atom_0, ensemble);
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
                 static std::fstream xyzfile("../output/coordinates.xyz", std::ios::out);
-                outfile << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
+                outfile << atom_0->T << "\t" << atom_0 -> potentialenergy << "\t" << atom_0 -> kineticenergy << "\t" 
                 << atom_0 -> totalenergy << "\t" << (i * dt * 0.001) << "\n";
                 output_xyz(atom_0, xyzfile, i);
             }   // out put the file 
@@ -274,8 +322,7 @@ void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, doubl
         {
             algorithm::velvet_EAM_alloy(dt_inner, *atom_0);
             atom_0->update_energy();
-            if (ensemble == "nvt")
-            ensemble::NVT_ensemble(*atom_0);
+            apply_ensemble(atom_0, ensemble);
             if (i % step_to_record == 0)//i % step_to_record == 0
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);
@@ -298,8 +345,7 @@ void run_by_EAM_alloy_potential(atom*& atom_0, cell*& cell_0, double step, doubl
         {
             algorithm::velvet_EAM_alloy_nl(dt_inner, *atom_0);
             atom_0->update_energy();
-            if (ensemble == "nvt")
-            ensemble::NVT_ensemble(*atom_0);
+            apply_ensemble(atom_0, ensemble);
             if (i % step_to_record == 0)
             {
                 static std::fstream outfile("../output/outfile.txt", std::ios::out);

@@ -77,8 +77,6 @@ inline void algorithm::velvet_for_update_place(double & dt, atom& atom_0)
         atom_0.coordinate[i].z += displacement_old[2];
         mirror_constrain_for_placement(atom_0, atom_0.coordinate[i].x, atom_0.coordinate[i].y, atom_0.coordinate[i].z);
 
-        if (std::isnan(atom_0.coordinate[i].x) || std::isnan(atom_0.coordinate[i].y) || std::isnan(atom_0.coordinate[i].z))
-        throw std::out_of_range("the coordinate is wrong");
     }
 }
 

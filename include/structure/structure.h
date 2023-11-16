@@ -26,7 +26,7 @@ class cell // This is used for primitive cell
     v[0] /= magnitude;
     v[1] /= magnitude;
     v[2] /= magnitude;
-    }
+    }//till here it has already been normalized
     matrix = mtx;
     }
 };

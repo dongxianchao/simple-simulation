@@ -13,11 +13,11 @@ atom
 63.546	63.546	63.546	63.546
 
 ensemble
-nvt bdp 3000 100
+npt ber 3000 500 1 1 1e-5 5000
 
 parameter
 T   100
-step	5000
+step	25000
 dt  0.001
 
 EAM_alloy potential

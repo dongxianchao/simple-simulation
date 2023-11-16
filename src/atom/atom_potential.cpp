@@ -2,7 +2,7 @@
 #include <iostream>
 #include <random>
 
-
+//this is used for inversing the matrix
 std::vector<std::vector<double>> matrix_inv(std::vector<std::vector<double>> & mat)
 {
     double a = mat[0][0], b = mat[0][1], c = mat[0][2];
@@ -27,6 +27,31 @@ std::vector<std::vector<double>> matrix_inv(std::vector<std::vector<double>> & m
     return inv;
 }
 
+//this is used for store datas
+struct vec
+{
+    double mold, x, y, z, force;
+};
+
+
+void atom::update_the_virial_tensor(double& Fx, double& Fy, double& Fz, double& rx, double& ry, double& rz, int& index)
+{
+    virial_tensor[index][0] += rx * Fx;
+    virial_tensor[index][1] += rx * Fy;
+    virial_tensor[index][2] += rx * Fz;
+    virial_tensor[index][3] += ry * Fx;
+    virial_tensor[index][4] += ry * Fy;
+    virial_tensor[index][5] += ry * Fz;
+    virial_tensor[index][6] += rz * Fx;
+    virial_tensor[index][7] += rz * Fy;
+    virial_tensor[index][8] += rz * Fz;
+}
+
+void atom::clean_the_virial_tensor()
+{
+    for (int i = 0; i < total_num; ++i)
+    std::fill(virial_tensor[i].begin(), virial_tensor[i].end(), 0);
+}
 
 
 atom::atom(std::vector<int> numcells, int numbers,
@@ -35,6 +60,7 @@ atom::atom(std::vector<int> numcells, int numbers,
     std::vector<double> y_0,
     std::vector<double> z_0, cell& cell_0)
     {
+        primitive_cell_num = numcells;
         cell_num = numbers;
         total_num = cell_num * numcells[0] * numcells[1] * numcells[2];
         coordinate = new three_dim_vector[total_num];
@@ -47,6 +73,12 @@ atom::atom(std::vector<int> numcells, int numbers,
         pe.resize(total_num, 0);
         type.resize(total_num, 0);
         rho.resize(total_num, 0);   // allocate memory
+        virial_tensor.reserve(total_num);
+
+        //for (int i = 0; i < total_num; ++i)
+        //std::fill(virial_tensor[i], virial_tensor[i] + 9, 0);
+
+        cell_in = &cell_0;
 
         if_othogonal = false;
 
@@ -165,6 +197,8 @@ atom::atom(std::vector<int> numcells, int numbers,
 
 
 
+
+
 // just as the name says
 void compute_1dv_times_3dm(double* arr, std::vector<std::vector<double>> &mtx, double (&arr_out)[3]) {
     for (int i = 0; i < 3; ++i) {
@@ -196,6 +230,8 @@ void mirror_constrain(double* b, double &xij, double &yij, double &zij)
 // it's the classical LJ method which will calculate the all atoms
 void potential_energy::LJ_potential(atom & atom_0)
 {
+    if (atom_0.virial_switch)
+    atom_0.clean_the_virial_tensor();
     for (int n = 0; n < atom_0.total_num; ++n)
     {
         atom_0.force[n].x = atom_0.force[n].y = atom_0.force[n].z = atom_0.pe[n] = 0;
@@ -230,12 +266,23 @@ void potential_energy::LJ_potential(atom & atom_0)
             const double r14inv = r6inv * r8inv;
             const double f_ij = coefficient::e24s6 * r8inv - coefficient::e48s12 * r14inv;
             atom_0.pe[i] += coefficient::e4s12 * r12inv - coefficient::e4s6 * r6inv;
-            atom_0.force[i].x += f_ij * xij;
-            atom_0.force[j].x -= f_ij * xij;
-            atom_0.force[i].y += f_ij * yij;
-            atom_0.force[j].y -= f_ij * yij;
-            atom_0.force[i].z += f_ij * zij;
-            atom_0.force[j].z -= f_ij * zij;
+
+            double Fx, Fy, Fz;
+            Fx = f_ij * xij;
+            Fy = f_ij * yij;
+            Fz = f_ij * zij;
+            atom_0.force[i].x += Fx;
+            atom_0.force[j].x -= Fx;
+            atom_0.force[i].y += Fy;
+            atom_0.force[j].y -= Fy;
+            atom_0.force[i].z += Fz;
+            atom_0.force[j].z -= Fz;
+
+            if (atom_0.virial_switch)
+            {
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, xij, yij, zij, i);
+            }
+
         }
     }
 }
@@ -255,6 +302,235 @@ double atom::total_energy()
 {
     totalenergy = kineticenergy + potentialenergy;
     return totalenergy;
+}
+
+void atom::calculate_virial_pressure()
+{
+    //initialise
+    for (int i = 0; i < 9; ++i)
+    virial_press_tensor_tot[i] = 0;
+
+    for (int i = 0; i < total_num; ++i)
+    {
+        for(int j = 0; j < 9; ++j)
+        virial_press_tensor_tot[j] -= virial_tensor[i][j];
+    }
+
+    double vxx, volume; //this is the second part of the equation
+
+    double a = box[0] * basic_vectors[0][0], b = box[0] * basic_vectors[0][1], c = box[0] * basic_vectors[0][2];
+    double d = box[1] * basic_vectors[1][0], e = box[1] * basic_vectors[1][1], f = box[1] * basic_vectors[1][2];
+    double g = box[2] * basic_vectors[2][0], h = box[2] * basic_vectors[2][1], i = box[2] * basic_vectors[2][2];
+
+    volume = abs(a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g));//   determinant
+
+    double volume_inv = 1 / volume;
+
+    vxx = total_num * coefficient::k_B * T;
+
+    virial_press_tensor_tot[0] += vxx;
+    virial_press_tensor_tot[3] += vxx;
+    virial_press_tensor_tot[6] += vxx;
+
+    for (int i = 0; i < 9; ++i)
+    virial_press_tensor_tot[i] *= volume_inv;
+
+}
+
+//input miu matrix and vector and output the outcome
+void util_calculator_for_rescale(double* input_miu, three_dim_vector& v, double* output)
+{
+    output[0] = input_miu[0] * v.x + input_miu[1] * v.y + input_miu[2] * v.z;
+    output[1] = input_miu[3] * v.x + input_miu[4] * v.y + input_miu[5] * v.z;
+    output[2] = input_miu[6] * v.x + input_miu[7] * v.y + input_miu[8] * v.z;
+}
+
+void atom::rescale_the_position(double* miu)
+{
+    max_nl_dr_square = 0;
+    for (int i = 0; i < total_num; ++i)
+    {
+        double final_coordinate[3];
+        double raw[3] = {coordinate[i].x, coordinate[i].y, coordinate[i].z};//this coordinate hasn't been transformed
+        double init_coordinate[3];
+
+        compute_1dv_times_3dm(raw, basic_vectors, init_coordinate);
+        util_calculator_for_rescale(miu, coordinate[i], final_coordinate);
+
+        double dx, dy, dz;
+        dx = final_coordinate[0] - init_coordinate[0];
+        dy = final_coordinate[1] - init_coordinate[1];
+        dz = final_coordinate[2] - init_coordinate[2];
+
+        double final_coordinate_transform[3];
+
+        compute_1dv_times_3dm(final_coordinate, basic_vectors_inv, final_coordinate_transform);
+
+        coordinate[i].x = final_coordinate_transform[0];
+        coordinate[i].y = final_coordinate_transform[1];
+        coordinate[i].z = final_coordinate_transform[2];
+
+        double dr_square = dx * dx + dy * dy + dz * dz;
+        if (dr_square > max_nl_dr_square)
+        max_nl_dr_square = dr_square;
+    }// this part is used for update position and decide if need to update the nl
+
+    cell_in->matrix[0][0] *= cell_in->lattice_x;
+    cell_in->matrix[0][1] *= cell_in->lattice_x;
+    cell_in->matrix[0][2] *= cell_in->lattice_x;
+    cell_in->matrix[1][0] *= cell_in->lattice_y;
+    cell_in->matrix[1][1] *= cell_in->lattice_y;
+    cell_in->matrix[1][2] *= cell_in->lattice_y;
+    cell_in->matrix[2][0] *= cell_in->lattice_z;
+    cell_in->matrix[2][1] *= cell_in->lattice_z;
+    cell_in->matrix[2][2] *= cell_in->lattice_z;//recalculate the box, lattice and the vector
+
+    std::vector<std::vector<double>> new_mtx(3, std::vector<double>(3));
+    new_mtx[0][0] = miu[0] * cell_in->matrix[0][0] + miu[1] * cell_in->matrix[0][1] + miu[2] * cell_in->matrix[0][2];
+    new_mtx[1][0] = miu[0] * cell_in->matrix[1][0] + miu[1] * cell_in->matrix[1][1] + miu[2] * cell_in->matrix[1][2];
+    new_mtx[2][0] = miu[0] * cell_in->matrix[2][0] + miu[1] * cell_in->matrix[2][1] + miu[2] * cell_in->matrix[2][2];
+    new_mtx[0][1] = miu[3] * cell_in->matrix[0][0] + miu[4] * cell_in->matrix[0][1] + miu[5] * cell_in->matrix[0][2];
+    new_mtx[1][1] = miu[3] * cell_in->matrix[1][0] + miu[4] * cell_in->matrix[1][1] + miu[5] * cell_in->matrix[1][2];
+    new_mtx[2][1] = miu[3] * cell_in->matrix[2][0] + miu[4] * cell_in->matrix[2][1] + miu[5] * cell_in->matrix[2][2];
+    new_mtx[0][2] = miu[6] * cell_in->matrix[0][0] + miu[7] * cell_in->matrix[0][1] + miu[8] * cell_in->matrix[0][2];
+    new_mtx[1][2] = miu[6] * cell_in->matrix[1][0] + miu[7] * cell_in->matrix[1][1] + miu[8] * cell_in->matrix[1][2];
+    new_mtx[2][2] = miu[6] * cell_in->matrix[2][0] + miu[7] * cell_in->matrix[2][1] + miu[8] * cell_in->matrix[2][2];
+    //it's right because of the transpose
+
+
+    cell_in->lattice_x = sqrt(new_mtx[0][0] * new_mtx[0][0] + new_mtx[0][1] * new_mtx[0][1] + new_mtx[0][2] * new_mtx[0][2]);
+    cell_in->lattice_y = sqrt(new_mtx[1][0] * new_mtx[1][0] + new_mtx[1][1] * new_mtx[1][1] + new_mtx[1][2] * new_mtx[1][2]);
+    cell_in->lattice_z = sqrt(new_mtx[2][0] * new_mtx[2][0] + new_mtx[2][1] * new_mtx[2][1] + new_mtx[2][2] * new_mtx[2][2]);
+
+
+    box[0] = cell_in->lattice_x * primitive_cell_num[0];
+    box[1] = cell_in->lattice_y * primitive_cell_num[1];
+    box[2] = cell_in->lattice_z * primitive_cell_num[2];
+    box[3] = 0.5 * box[0];
+    box[4] = 0.5 * box[1];
+    box[5] = 0.5 * box[2];
+
+    for (auto& v : new_mtx)
+    {
+        double magnitude = 0.0;
+        for (double val : v) {
+            magnitude += val * val;
+        }
+    magnitude = std::sqrt(magnitude);
+
+    v[0] /= magnitude;
+    v[1] /= magnitude;
+    v[2] /= magnitude;
+    }//normalize the matrix
+
+    cell_in->matrix = new_mtx;
+    basic_vectors = new_mtx;
+    basic_vectors_inv = matrix_inv(new_mtx);
+
+    initialise_boxes_xyz_maxnums(*cell_in);
+    
+    if (max_nl_dr_square * 4 > coefficient::nl_delta_square)
+    {
+        max_nl_dr_square = 0;
+        delete[] neighbour_list;
+        initialise_boxes();
+
+        #pragma omp parallel for
+        for (int i = 0; i < total_num; ++i)
+        {
+        int coodinate[3];// used for insert in box
+        coodinate[0] = coordinate[i].x * coefficient::cutoff_box_inv_x;
+        coodinate[1] = coordinate[i].y * coefficient::cutoff_box_inv_y;
+        coodinate[2] = coordinate[i].z * coefficient::cutoff_box_inv_z;
+
+        if (coodinate[0] == boxes_x) coodinate[0] -= 1;
+        if (coodinate[1] == boxes_y) coodinate[1] -= 1;
+        if (coodinate[2] == boxes_z) coodinate[2] -= 1;//    apply the method of mirror
+
+        #pragma omp critical
+        {
+            insert_in_boxes(coodinate, i);
+        }
+        }
+        
+        initialise_neighbour_list();
+        update_neighbour_list();
+        delete[] boxes;  //free the memory
+        delete[] coordinate_init;
+        coordinate_init = new three_dim_vector[total_num];
+        for (int i = 0; i < total_num; ++i)
+        {
+            coordinate_init[i] = coordinate[i];
+        }
+    }
+}
+
+
+void atom::rescale_the_position(double miuxx, double miuyy, double miuzz)
+{
+    max_nl_dr_square = 0;
+    for (int i = 0; i < total_num; ++i)
+    {
+        double dx, dy, dz;
+        dx = (miuxx - 1) * coordinate[i].x;
+        dy = (miuyy - 1) * coordinate[i].y;
+        dz = (miuzz - 1) * coordinate[i].z;
+        coordinate[i].x *= miuxx;
+        coordinate[i].y *= miuyy;
+        coordinate[i].z *= miuzz;
+
+        double dr_square = dx * dx + dy * dy + dz * dz;
+        if (dr_square > max_nl_dr_square)
+        max_nl_dr_square = dr_square;
+    }// this part is used for update position and decide if need to update the nl
+
+    box[0] *= miuxx;
+    box[1] *= miuyy;
+    box[2] *= miuzz;
+    box[3] = 0.5 * box[0];
+    box[4] = 0.5 * box[1];
+    box[5] = 0.5 * box[2];
+    cell_in->lattice_x *= miuxx;
+    cell_in->lattice_y *= miuyy;
+    cell_in->lattice_z *= miuzz;
+
+
+    initialise_boxes_xyz_maxnums(*cell_in);
+    
+    if (max_nl_dr_square * 4 > coefficient::nl_delta_square)
+    {
+        max_nl_dr_square = 0;
+        delete[] neighbour_list;
+        initialise_boxes();
+
+        #pragma omp parallel for
+        for (int i = 0; i < total_num; ++i)
+        {
+        int coodinate[3];// used for insert in box
+        coodinate[0] = coordinate[i].x * coefficient::cutoff_box_inv_x;
+        coodinate[1] = coordinate[i].y * coefficient::cutoff_box_inv_y;
+        coodinate[2] = coordinate[i].z * coefficient::cutoff_box_inv_z;
+
+        if (coodinate[0] == boxes_x) coodinate[0] -= 1;
+        if (coodinate[1] == boxes_y) coodinate[1] -= 1;
+        if (coodinate[2] == boxes_z) coodinate[2] -= 1;//    apply the method of mirror
+
+        #pragma omp critical
+        {
+            insert_in_boxes(coodinate, i);
+        }
+        }
+        
+        initialise_neighbour_list();
+        update_neighbour_list();
+        delete[] boxes;  //free the memory
+        delete[] coordinate_init;
+        coordinate_init = new three_dim_vector[total_num];
+        for (int i = 0; i < total_num; ++i)
+        {
+            coordinate_init[i] = coordinate[i];
+        }
+    }
 }
 
 void atom::update_energy()
@@ -325,11 +601,6 @@ void atom::initialise_boxes_xyz_maxnums(cell& cell_0)
     coefficient::cutoff_box_inv_y = 1 / coefficient::cutoff_box_y;
     coefficient::cutoff_box_inv_z = 1 / coefficient::cutoff_box_z;
 
-
-    coefficient::max_num_in_boxes = (coefficient::cutoff_box_x / cell_0.lattice_x) *
-    (coefficient::cutoff_box_y / cell_0.lattice_y) * (coefficient::cutoff_box_z / cell_0.lattice_z)* (cell_num * 8);
-
-    coefficient::max_num_in_nl = 2 * coefficient::max_num_in_boxes;
 }
 
 
@@ -366,6 +637,8 @@ void atom::insert_in_boxes(int*& place, int index)
 {
     int prefix = (place[0] * boxes_y * boxes_z + place[1] * boxes_z + place[2])
     * coefficient::max_num_in_boxes;
+    if (boxes[prefix] >= coefficient::max_num_in_boxes - 1)
+    throw std::out_of_range("numbers in box out of range");// for debuging
     boxes[prefix] += 1;
     boxes[boxes[prefix] + prefix] = index;
 }
@@ -375,6 +648,8 @@ void atom::insert_in_boxes(int (&place)[3], int index)
 {
     int prefix = (place[0] * boxes_y * boxes_z + place[1] * boxes_z + place[2])
     * coefficient::max_num_in_boxes;
+    if (boxes[prefix] >= coefficient::max_num_in_boxes - 1)
+    throw std::out_of_range("numbers in box out of range");// for debugging
     boxes[prefix] += 1;
     boxes[boxes[prefix] + prefix] = index;
 }// used for insert in boxes
@@ -395,6 +670,10 @@ void check_if_on_the_edge(int& x, int& y, int& z, atom& atom_0)
 
 void potential_energy::LJ_potential_nl(atom & atom_0)
 {
+
+    if (atom_0.virial_switch)
+    atom_0.clean_the_virial_tensor();
+
     delete[] atom_0.force;
     atom_0.force = new three_dim_vector[atom_0.total_num]();
     //#pragma omp parallel for
@@ -407,6 +686,7 @@ void potential_energy::LJ_potential_nl(atom & atom_0)
     for (int index_i = 0; index_i < atom_0.total_num; ++index_i)  //calculate the force
     {
         int prefix = index_i * coefficient::max_num_in_nl;
+        double local_force_x = 0, local_force_y = 0, local_force_z = 0;
         for(int s = 1; s <= atom_0.neighbour_list[prefix]; ++s)
         {
             int index_j = atom_0.neighbour_list[prefix + s];
@@ -433,15 +713,41 @@ void potential_energy::LJ_potential_nl(atom & atom_0)
             const double r12inv = r4inv * r8inv;
             const double r14inv = r6inv * r8inv;
             const double f_ij = coefficient::e24s6 * r8inv - coefficient::e48s12 * r14inv;
+            #pragma omp atomic
             atom_0.pe[index_i] += 0.5 * (coefficient::e4s12 * r12inv - coefficient::e4s6 * r6inv);
+            #pragma omp atomic
             atom_0.pe[index_i] += 0.5 * (coefficient::e4s12 * r12inv - coefficient::e4s6 * r6inv);
-            atom_0.force[index_i].x += f_ij * xij;
-            atom_0.force[index_i].y += f_ij * yij;
-            atom_0.force[index_i].z += f_ij * zij;
+
+
+            double Fx, Fy, Fz;
+            Fx = f_ij * xij;
+            Fz = f_ij * yij;
+            Fz = f_ij * zij;
+
+            local_force_x += Fx;
+            local_force_y += Fy;
+            local_force_z += Fz;
+
+            #pragma omp atomic
             atom_0.force[index_j].x -= f_ij * xij;
+            #pragma omp atomic
             atom_0.force[index_j].y -= f_ij * yij;
+            #pragma omp atomic
             atom_0.force[index_j].z -= f_ij * zij;
+
+            if (atom_0.virial_switch)
+            {
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, xij, yij, zij, index_i);
+            }
+
+
         }
+        #pragma omp atomic
+        atom_0.force[index_i].x += local_force_x;
+        #pragma omp atomic
+        atom_0.force[index_i].y += local_force_y;
+        #pragma omp atomic
+        atom_0.force[index_i].z += local_force_z;
     }
 }
 
@@ -486,6 +792,8 @@ void atom::update_neighbour_list()
                             continue;// set the cutoff
 
                         int pre = coefficient::max_num_in_nl * index_i;
+                        if (neighbour_list[pre] >= coefficient::max_num_in_nl - 1)
+                        throw std::out_of_range("neighbour list out of range");
                         neighbour_list[pre] += 1;
                         neighbour_list[neighbour_list[pre] + pre] = index_j;
                     }
@@ -541,6 +849,8 @@ void atom::update_neighbour_list()
                 continue;// set the cutoff
 
             int pre = coefficient::max_num_in_nl * index_i;
+            if (neighbour_list[pre] >= coefficient::max_num_in_nl - 1)
+            throw std::out_of_range("neighbour list out of range");
             neighbour_list[pre] += 1;
             neighbour_list[neighbour_list[pre] + pre] = index_j;
         }// the second cell
@@ -582,6 +892,8 @@ void atom::update_neighbour_list()
                     continue;// set the cutoff
 
                 int pre = coefficient::max_num_in_nl * index_i;
+                if (neighbour_list[pre] >= coefficient::max_num_in_nl - 1)
+                throw std::out_of_range("neighbour list out of range");
                 neighbour_list[pre] += 1;
                 neighbour_list[neighbour_list[pre] + pre] = index_j;
             }
@@ -625,6 +937,8 @@ void atom::update_neighbour_list()
                         continue;// set the cutoff
 
                     int pre = coefficient::max_num_in_nl * index_i;
+                    if (neighbour_list[pre] >= coefficient::max_num_in_nl - 1)
+                    throw std::out_of_range("neighbour list out of range");
                     neighbour_list[pre] += 1;
                     neighbour_list[neighbour_list[pre] + pre] = index_j;
                 }
@@ -826,7 +1140,7 @@ void EAM_cubic_spline_interpolation_partial(int& total_num, double*& values, dou
             matrix_for_r.insert(3, num - 2) = r_max * r_max;
             matrix_for_r.insert(3, num - 3) = r_max;
             matrix_for_r.insert(3, num - 4) = 1;
-            vector_for_r(3) = values[num - 1];
+            vector_for_r(3) = values[total_num - 1];
 
             #pragma omp parallel for
             for (int i = 1; i < total_num - 1; ++i)
@@ -971,6 +1285,9 @@ void transform_into_unit_vector(double* arr)
 
 void potential_energy::EAM_potential_cubicspline(atom& atom_0)
 {
+    if (atom_0.virial_switch)
+    atom_0.clean_the_virial_tensor();
+
     delete[] atom_0.force;
     atom_0.force = new three_dim_vector[atom_0.total_num]();
     //#pragma omp parallel for
@@ -987,9 +1304,9 @@ void potential_energy::EAM_potential_cubicspline(atom& atom_0)
         std::vector<std::vector<double>>(
             atom_0.total_num, 
             std::vector<double>(4, 0.0)
-            ));   // the 4 element is mold, x, y, z, this used for store all the data
+            ));   // the 4 element is mold, x, y, z this used for store all the data
 
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (int i = 0; i < atom_0.total_num; ++i)
     {
         for (int j = 0; j < atom_0.total_num; ++j)
@@ -1025,13 +1342,31 @@ void potential_energy::EAM_potential_cubicspline(atom& atom_0)
             atom_0.pe[i] += 27.2 * 0.529 * Z_r * Z_r * rij_inv * 0.5;
             double dZ_r = get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_r_Zr, rij, EAM_dr_inv);
             double force = 27.2 * 0.529 * (2 * Z_r * rij  * dZ_r - Z_r * Z_r) * rij_inv * rij_inv;  // this is the two body force part
-            atom_0.force[i].x += force * xij;
-            atom_0.force[i].y += force * yij;
-            atom_0.force[i].z += force * zij;
+
+            double Fx, Fy, Fz;
+            Fx = force * xij;
+            Fy = force * yij;
+            Fz = force * zij;
+            atom_0.force[i].x += Fx;
+            atom_0.force[i].y += Fy;
+            atom_0.force[i].z += Fz;
+
+            if (atom_0.virial_switch)
+            {
+                double rx, ry, rz;
+                rx = rij * xij;
+                ry = rij * yij;
+                rz = rij * zij;
+                Fx *= 0.5;
+                Fy *= 0.5;
+                Fz *= 0.5;
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, rx, ry, rz, i);
+            }
+
         }
     }
 
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (int i = 0; i < atom_0.total_num; ++i)
     {
         atom_0.pe[i] += get_the_value_of_spline(EAM_cubic_spline_coefficient_rho_Frho, atom_0.rho[i], EAM_drho_inv);// calculate the potential energy
@@ -1044,10 +1379,26 @@ void potential_energy::EAM_potential_cubicspline(atom& atom_0)
             + (get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_rho_Frho, atom_0.rho[real_neighbour_list[prefix + j]], EAM_drho_inv)))
             * get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_r_rhor, r_all[i][real_neighbour_list[prefix + j]][0], EAM_dr_inv); //this is the multitude body force part
 
+            double Fx, Fy, Fz;
+            Fx = force * r_all[i][real_neighbour_list[prefix + j]][1];
+            Fy = force * r_all[i][real_neighbour_list[prefix + j]][2];
+            Fz = force * r_all[i][real_neighbour_list[prefix + j]][3];
 
-            atom_0.force[i].x += force * r_all[i][real_neighbour_list[prefix + j]][1];
-            atom_0.force[i].y += force * r_all[i][real_neighbour_list[prefix + j]][2];
-            atom_0.force[i].z += force * r_all[i][real_neighbour_list[prefix + j]][3];    //calculate the many body force
+            atom_0.force[i].x += Fx;
+            atom_0.force[i].y += Fy;
+            atom_0.force[i].z += Fz;    //calculate the many body force
+
+            if (atom_0.virial_switch)
+            {
+                double rx, ry, rz;
+                rx = r_all[i][real_neighbour_list[prefix + j]][0] * r_all[i][real_neighbour_list[prefix + j]][1];
+                ry = r_all[i][real_neighbour_list[prefix + j]][0] * r_all[i][real_neighbour_list[prefix + j]][2];
+                rz = r_all[i][real_neighbour_list[prefix + j]][0] * r_all[i][real_neighbour_list[prefix + j]][3];
+                Fx *= 0.5;
+                Fy *= 0.5;
+                Fz *= 0.5;
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, rx, ry, rz, i);
+            }
 
         }
     }
@@ -1059,6 +1410,9 @@ void potential_energy::EAM_potential_cubicspline(atom& atom_0)
 
 void potential_energy::EAM_alloy_potential_cubicspline(atom& atom_0)
 {
+    if (atom_0.virial_switch)
+    atom_0.clean_the_virial_tensor();
+    
     //#pragma omp parallel for
     for (int n = 0; n < atom_0.total_num; ++n)
     {
@@ -1073,9 +1427,9 @@ void potential_energy::EAM_alloy_potential_cubicspline(atom& atom_0)
         std::vector<std::vector<double>>(
             atom_0.total_num, 
             std::vector<double>(4, 0.0)
-            ));   // the 4 element is mold, x, y, z, this used for store all the data
+            ));   // the 4 element is mold, x, y, z this used for store all the data
 
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (int i = 0; i < atom_0.total_num; ++i)
     {
         for (int j = 0; j < atom_0.total_num; ++j)
@@ -1123,13 +1477,31 @@ void potential_energy::EAM_alloy_potential_cubicspline(atom& atom_0)
             atom_0.pe[i] += 0.5 * fi_r * rij_inv;
             double dfi_r = get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rfhi_r[index], rij, EAM_dr_inv);
             double force = (dfi_r - fi_r * rij_inv) * rij_inv;  // this is the two body force part
-            atom_0.force[i].x += force * xij;
-            atom_0.force[i].y += force * yij;
-            atom_0.force[i].z += force * zij;
+
+            double Fx, Fy, Fz;
+            Fx = force * xij;
+            Fy = force * yij;
+            Fz = force * zij;
+
+            atom_0.force[i].x += Fx;
+            atom_0.force[i].y += Fy;
+            atom_0.force[i].z += Fz;
+
+            if (atom_0.virial_switch)
+            {
+                double rx, ry, rz;
+                rx = rij * xij;
+                ry = rij * yij;
+                rz = rij * zij;
+                Fx *= 0.5;
+                Fy *= 0.5;
+                Fz *= 0.5;
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, rx, ry, rz, i);
+            }
         }
     }
 
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (int i = 0; i < atom_0.total_num; ++i)
     {
         atom_0.pe[i] += get_the_value_of_spline(EAM_alloy_cubic_spline_coefficient_F_rho[atom_0.type[i]], atom_0.rho[i], EAM_drho_inv);// calculate the potential energy
@@ -1142,10 +1514,27 @@ void potential_energy::EAM_alloy_potential_cubicspline(atom& atom_0)
             * get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rho_r[atom_0.type[i]], r_all[i][real_neighbour_list[prefix + j]][0], EAM_dr_inv)); //this is the multitude body force part
 
 
-            atom_0.force[i].x += force * r_all[i][real_neighbour_list[prefix + j]][1];
-            atom_0.force[i].y += force * r_all[i][real_neighbour_list[prefix + j]][2];
-            atom_0.force[i].z += force * r_all[i][real_neighbour_list[prefix + j]][3];    //calculate the many body force
+            double Fx, Fy, Fz;
+            Fx = force * r_all[i][real_neighbour_list[prefix + j]][1];
+            Fy = force * r_all[i][real_neighbour_list[prefix + j]][2];
+            Fz = force * r_all[i][real_neighbour_list[prefix + j]][3];
 
+
+            atom_0.force[i].x += Fx;
+            atom_0.force[i].y += Fy;
+            atom_0.force[i].z += Fz;    //calculate the many body force
+
+            if (atom_0.virial_switch)
+            {
+                double rx, ry, rz;
+                rx = r_all[i][real_neighbour_list[prefix + j]][0] * r_all[i][real_neighbour_list[prefix + j]][1];
+                ry = r_all[i][real_neighbour_list[prefix + j]][0] * r_all[i][real_neighbour_list[prefix + j]][2];
+                rz = r_all[i][real_neighbour_list[prefix + j]][0] * r_all[i][real_neighbour_list[prefix + j]][3];
+                Fx *= 0.5;
+                Fy *= 0.5;
+                Fz *= 0.5;
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, rx, ry, rz, i);
+            }
         }
     }
     delete[] real_neighbour_list;
@@ -1156,15 +1545,10 @@ void potential_energy::EAM_alloy_potential_cubicspline(atom& atom_0)
 
 
 
-struct vec
-{
-    double mold, x, y, z;
-};
-
-
-
 void potential_energy::EAM_nl_linear_interpolation(atom& atom_0)
 {
+    if (atom_0.virial_switch)
+    atom_0.clean_the_virial_tensor();
     //#pragma omp parallel for
 
     for (int n = 0; n < atom_0.total_num; ++n)
@@ -1215,20 +1599,19 @@ void potential_energy::EAM_nl_linear_interpolation(atom& atom_0)
             r_all[put_place].y = yij;
             r_all[put_place].z = zij;
             double rho = get_the_value_of_spline(EAM_cubic_spline_coefficient_r_rhor, rij, EAM_dr_inv);
+            #pragma omp atomic
             atom_0.rho[real_j] += rho;
+            #pragma omp atomic
             atom_0.rho[i] += rho;
             double Z_r = get_the_value_of_spline(EAM_cubic_spline_coefficient_r_Zr, rij, EAM_dr_inv);
             double pe = 27.2 * 0.529 * Z_r * Z_r * rij_inv * 0.5;
+            #pragma omp atomic
             atom_0.pe[i] += pe;
+            #pragma omp atomic
             atom_0.pe[real_j] += pe;
             double dZ_r = get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_r_Zr, rij, EAM_dr_inv);
             double force = 27.2 * 0.529 * (2 * Z_r * rij  * dZ_r - Z_r * Z_r) * rij_inv * rij_inv;  // this is the two body force part
-            atom_0.force[i].x += force * xij;
-            atom_0.force[i].y += force * yij;
-            atom_0.force[i].z += force * zij;
-            atom_0.force[real_j].x -= force * xij;
-            atom_0.force[real_j].y -= force * yij;
-            atom_0.force[real_j].z -= force * zij;
+            r_all[put_place].force = force;
         }
     }
 
@@ -1240,21 +1623,53 @@ void potential_energy::EAM_nl_linear_interpolation(atom& atom_0)
     {
         atom_0.pe[i] += get_the_value_of_spline(EAM_cubic_spline_coefficient_rho_Frho, atom_0.rho[i], EAM_drho_inv);// calculate the potential energy
         int prefix = i * coefficient::max_nums_in_cutoff;
+        double local_force_x = 0.0, local_force_y = 0.0, local_force_z = 0.0;
         for (int j = 1; j <= real_neighbour_list[prefix]; ++j)
         {
             int index_j = real_neighbour_list[prefix + j];
             double force = ((get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_rho_Frho, atom_0.rho[i], EAM_drho_inv))
             + (get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_rho_Frho, atom_0.rho[index_j], EAM_drho_inv)))
-            * get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_r_rhor, r_all[prefix + j].mold, EAM_dr_inv); //this is the multitude body force part
+            * get_the_derivative_of_the_spline(EAM_cubic_spline_coefficient_r_rhor, r_all[prefix + j].mold, EAM_dr_inv)
+            + r_all[prefix + j].force; //this is the multitude body force part
+
+            double Fx, Fy, Fz;
+            Fx = force * r_all[prefix + j].x;
+            Fy = force * r_all[prefix + j].y;
+            Fz = force * r_all[prefix + j].z;
+
+            local_force_x += Fx;
+            local_force_y += Fy;
+            local_force_z += Fz;
+
+            #pragma omp atomic
+            atom_0.force[index_j].x -= Fx;
+        
+            #pragma omp atomic
+            atom_0.force[index_j].y -= Fy;
+        
+            #pragma omp atomic
+            atom_0.force[index_j].z -= Fz; //calculate the many body force
 
 
-            atom_0.force[i].x += force * r_all[prefix + j].x;
-            atom_0.force[i].y += force * r_all[prefix + j].y;
-            atom_0.force[i].z += force * r_all[prefix + j].z;  
-            atom_0.force[index_j].x -= force * r_all[prefix + j].x;
-            atom_0.force[index_j].y -= force * r_all[prefix + j].y;
-            atom_0.force[index_j].z -= force * r_all[prefix + j].z; //calculate the many body force
+            if (atom_0.virial_switch)
+            {
+                double rx, ry, rz;
+                rx = r_all[prefix + j].mold * r_all[prefix + j].x;
+                ry = r_all[prefix + j].mold * r_all[prefix + j].y;
+                rz = r_all[prefix + j].mold * r_all[prefix + j].z;
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, rx, ry, rz, i);
+            }
+
         }
+        #pragma omp atomic
+        atom_0.force[i].x += local_force_x;
+
+        #pragma omp atomic
+        atom_0.force[i].y += local_force_y;
+
+        #pragma omp atomic
+        atom_0.force[i].z += local_force_z;
+
     }
     delete[] real_neighbour_list;
     delete[] r_all;
@@ -1263,6 +1678,9 @@ void potential_energy::EAM_nl_linear_interpolation(atom& atom_0)
 
 void potential_energy::EAM_alloy_nl_cubic_spline(atom& atom_0)
 {
+    if (atom_0.virial_switch)
+    atom_0.clean_the_virial_tensor();
+
     //#pragma omp parallel for
     for (int n = 0; n < atom_0.total_num; ++n)
     {
@@ -1330,31 +1748,26 @@ void potential_energy::EAM_alloy_nl_cubic_spline(atom& atom_0)
 
 
             double rho = get_the_value_of_spline(EAM_alloy_cubic_spline_coefficient_rho_r[type_j], rij, EAM_dr_inv);
+            #pragma omp atomic
             atom_0.rho[i] += rho;
             if (type_i != type_j)
             {
                 rho = get_the_value_of_spline(EAM_alloy_cubic_spline_coefficient_rho_r[type_i], rij, EAM_dr_inv);
             }
+            #pragma omp atomic
             atom_0.rho[real_j] += rho;  //add the rho
 
             double fi_r = get_the_value_of_spline(EAM_alloy_cubic_spline_coefficient_rfhi_r[index], rij, EAM_dr_inv);
             double pe = 0.5 * fi_r * rij_inv;
+            #pragma omp atomic
             atom_0.pe[i] += pe;
+            #pragma omp atomic
             atom_0.pe[real_j] += pe;
             double dfi_r = get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rfhi_r[index], rij, EAM_dr_inv);
-            double force = (dfi_r - fi_r * rij_inv) * rij_inv;   // this is the two body force part
+            r_all[put_place].force = (dfi_r - fi_r * rij_inv) * rij_inv;   // this is the two body force part
 
-            atom_0.force[i].x += force * xij;
-            atom_0.force[i].y += force * yij;
-            atom_0.force[i].z += force * zij;
-            atom_0.force[real_j].x -= force * xij;
-            atom_0.force[real_j].y -= force * yij;
-            atom_0.force[real_j].z -= force * zij;
         }
     }
-
-
-
 
 
     #pragma omp parallel for
@@ -1363,6 +1776,7 @@ void potential_energy::EAM_alloy_nl_cubic_spline(atom& atom_0)
         atom_0.pe[i] += get_the_value_of_spline(EAM_alloy_cubic_spline_coefficient_F_rho[atom_0.type[i]], atom_0.rho[i], EAM_drho_inv);// calculate the potential energy
         int prefix = i * coefficient::max_nums_in_cutoff;
         int type_i = atom_0.type[i];
+        double local_force_x = 0.0, local_force_y = 0.0, local_force_z = 0.0;
         for (int j = 1; j <= real_neighbour_list[prefix]; ++j)
         {
             int index_j = real_neighbour_list[prefix + j];
@@ -1373,23 +1787,55 @@ void potential_energy::EAM_alloy_nl_cubic_spline(atom& atom_0)
                 force = (get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_F_rho[type_i], atom_0.rho[i], EAM_drho_inv)
                 * get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rho_r[type_j], r_all[prefix + j].mold, EAM_dr_inv))
                 + (get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_F_rho[type_j], atom_0.rho[index_j], EAM_drho_inv)
-                * get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rho_r[type_i], r_all[prefix + j].mold, EAM_dr_inv)); //this is the multitude body force part
+                * get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rho_r[type_i], r_all[prefix + j].mold, EAM_dr_inv))
+                + r_all[prefix + j].force; //this is the multitude body force part
             }
             else
             {
                 force = ((get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_F_rho[type_i], atom_0.rho[i], EAM_drho_inv)
                 + get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_F_rho[type_j], atom_0.rho[index_j], EAM_drho_inv))
-                * get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rho_r[type_i], r_all[prefix + j].mold, EAM_dr_inv)); //this is the multitude body force part
+                * get_the_derivative_of_the_spline(EAM_alloy_cubic_spline_coefficient_rho_r[type_i], r_all[prefix + j].mold, EAM_dr_inv))
+                + r_all[prefix + j].force; //this is the multitude body force part
             }
 
+            double Fx, Fy, Fz;
+            Fx = force * r_all[prefix + j].x;
+            Fy = force * r_all[prefix + j].y;
+            Fz = force * r_all[prefix + j].z;
 
-            atom_0.force[i].x += force * r_all[prefix + j].x;
-            atom_0.force[i].y += force * r_all[prefix + j].y;
-            atom_0.force[i].z += force * r_all[prefix + j].z;  
-            atom_0.force[index_j].x -= force * r_all[prefix + j].x;
-            atom_0.force[index_j].y -= force * r_all[prefix + j].y;
-            atom_0.force[index_j].z -= force * r_all[prefix + j].z; //calculate the many body force
+
+
+            local_force_x += Fx;
+            local_force_y += Fy;
+            local_force_z += Fz;
+
+            #pragma omp atomic
+            atom_0.force[index_j].x -= Fx;
+        
+            #pragma omp atomic
+            atom_0.force[index_j].y -= Fy;
+        
+            #pragma omp atomic
+            atom_0.force[index_j].z -= Fz;//calculate the many body force
+
+            if (atom_0.virial_switch)
+            {
+                double rx, ry, rz;
+                rx = r_all[prefix + j].mold * r_all[prefix + j].x;
+                ry = r_all[prefix + j].mold * r_all[prefix + j].y;
+                rz = r_all[prefix + j].mold * r_all[prefix + j].z;
+                atom_0.update_the_virial_tensor(Fx, Fy, Fz, rx, ry, rz, i);
+            }
         }
+
+        #pragma omp atomic
+        atom_0.force[i].x += local_force_x;
+
+        #pragma omp atomic
+        atom_0.force[i].y += local_force_y;
+
+        #pragma omp atomic
+        atom_0.force[i].z += local_force_z;
     }
 
     delete[] real_neighbour_list;
